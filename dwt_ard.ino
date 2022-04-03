@@ -1,7 +1,6 @@
 #include "Arduino.h"
 #include <wavelib.h>
 #include <Wire.h>
-#include <Adafruit_NeoPixel.h>
 
 #define MPL115A2_DEFAULT_ADDRESS (0x60)
 #define MPL115A2_REGISTER_PRESSURE_MSB (0x00) /**< 10-bit Pressure ADC output value MSB **/
@@ -19,19 +18,8 @@
 #define MPL115A2_REGISTER_STARTCONVERSION (0x12) /**< Start Pressure and Temperature Conversion **/
 
 #define checkPin 2
-#define a1 3 // 700 upper  v5-1
-#define a2 4 // 1200 upper v5-e2
-#define RPin1 8 // red
-#define RPin2 9 // green
-#define RPin3 10 // green
-#define RPin4 11 // green
-#define GPin1 7 // adafruit
-#define GPin2 15 // green
-#define GPin3 16 // green
-#define GPin4 17 // green
-#define NUMPIXELS 2 //# of pixels
-
-Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUMPIXELS, GPin1, NEO_GRBW + NEO_KHZ800);
+#define a1 3 // sensor1 pin#
+#define a2 4 // sensor2 pin#
 
 TwoWire *_wire;
 uint8_t _i2caddr;
@@ -40,20 +28,18 @@ uint16_t pressure, temp;
 int count;
 int buf1[20];int buf2[20];
 double *inp,*out,*diff;
-int N = 16; int J=4; int i,j; int x1, x2, x3, x4; 
-double d4_a1[20]; double d4_a2[20];
-double d4_re_a1[2], d4_re1_a1[5], d4_re2_a1[10], d4_re3_a1[20];
+int N = 16; int J=4; // N = window size (# of data per window) J = order of DWT 
+int i,j; int x1, x2, x3, x4; 
+double d4_a1[20]; double d4_a2[20]; // detail4 data from each sensor 
+//allocating buffer size for reconstruction
+double d4_re_a1[2], d4_re1_a1[5], d4_re2_a1[10], d4_re3_a1[20]; 
 double d4_re_a2[2], d4_re1_a2[5], d4_re2_a2[10], d4_re3_a2[20];
-double amp = 0.7071067811;
+double amp = 0.7071067811; //this parameter should be fixed 
 
 int _mpl115a2_a0;
 int _mpl115a2_b1;
 int _mpl115a2_b2;
 int pressureComp;
-
-long interval = 500; 
-long previousMillis;
-unsigned long currentMillis; 
 
 uint8_t i2cread(TwoWire *_wire) {
   uint8_t x;
@@ -65,7 +51,7 @@ void i2cwrite(TwoWire *_wire, uint8_t x) {
   _wire->write((uint8_t)x);
 }
 
-void readCoefficients() {
+void readCoefficients() { // reading coefficients from the sensor
   int16_t a0coeff;
   int16_t b1coeff;
   int16_t b2coeff;
@@ -96,8 +82,8 @@ void delay_(int ms) {
   }
   count = 0;
 }
-
-void pressure_sensor() {
+ 
+void pressure_sensor() { //calibrating sensor data to pressure output
 
   _wire->beginTransmission(_i2caddr);
   i2cwrite(_wire, (uint8_t)MPL115A2_REGISTER_STARTCONVERSION);
@@ -117,12 +103,12 @@ void pressure_sensor() {
   //Serial.print(pressureComp); Serial.print(',');
 }
 
-void wavelet_transform1() {
+void wavelet_transform1() {  //performing discrete wavelet transform 
   
   wave_object obj;
   wt_object wt; 
 
-  char *name = "haar"; 
+  char *name = "haar"; //mother wavelet type 
   obj = wave_init(name);
 
   inp = (double*)malloc(sizeof(double)* N);
@@ -142,7 +128,7 @@ void wavelet_transform1() {
 //    Serial.print(wt->output[i]); 
 //  }
 
-//saving d4
+//saving detail4 (if )
   for (j = 0; j < (N/16) ; ++j) {
     d4_a1[j] = wt->output[j+N/16];
     //Serial.println(d4_a1[j]);
@@ -191,6 +177,7 @@ void wavelet_transform2() {
   free(out);
 }
 
+//for reconstructing coefficients for the same time window 
 void reconstruction1() {
   for (x1 = 0; x1 < N/16; ++x1) {
     d4_re_a1[x1 * 2] = d4_a1[x1]*amp;
@@ -211,13 +198,6 @@ void reconstruction1() {
     d4_re3_a1[x4 * 2] = d4_re2_a1[x4]*amp;
     d4_re3_a1[x4 * 2 + 1] = d4_re2_a1[x4]*amp;
   }
-
-  //reconstructed data output
-//  for (i = 0; i< N; i++){
-//    Serial.print(buf1[i]-700); Serial.print(',');
-//    Serial.print(d4_re3[i]); //Serial.print(',');
-//    Serial.print('\n');
-//  }
 }
 
 void reconstruction2() {
@@ -240,17 +220,9 @@ void reconstruction2() {
     d4_re3_a2[x4 * 2] = d4_re2_a2[x4]*amp;
     d4_re3_a2[x4 * 2 + 1] = d4_re2_a2[x4]*amp;
   }
-
-  //reconstructed data output
-//  for (i = 0; i< N; i++){
-//    Serial.print(buf1[i]-700); Serial.print(',');
-//    Serial.print(d4_re3[i]); //Serial.print(',');
-//    Serial.print('\n');
-//  }
 }
  
 void data_save1(){
-  //digitalWrite(a1,HIGH);
   for(int a=0 ; a < N ; a++){
     readCoefficients();
     pressure_sensor();
@@ -265,7 +237,6 @@ void data_save1(){
 }
 
 void data_save2(){
-  //digitalWrite(a1,HIGH);
   for(int a=0 ; a < N ; a++){
     readCoefficients();
     pressure_sensor();
@@ -287,33 +258,12 @@ void setup() {
   pinMode(checkPin, OUTPUT);
   pinMode(a1,OUTPUT);
   pinMode(a2,OUTPUT);
-  pinMode(RPin1, OUTPUT);
-  pinMode(RPin2, OUTPUT);
-  pinMode(RPin3, OUTPUT);
-  pinMode(RPin4, OUTPUT);
-  //pinMode(GPin1, OUTPUT);
-  pinMode(GPin2, OUTPUT);
-  pinMode(GPin3, OUTPUT);
-  pinMode(GPin4, OUTPUT);
+
   digitalWrite(a1,LOW);
   digitalWrite(a2,LOW);
-  digitalWrite(RPin1,LOW);
-  digitalWrite(RPin2,LOW);
-  digitalWrite(RPin3,LOW);
-  digitalWrite(RPin4,LOW);
-  //digitalWrite(GPin1,HIGH);
-  digitalWrite(GPin2,HIGH);
-  digitalWrite(GPin3,HIGH);
-  digitalWrite(GPin4,HIGH);
-
-  pixels.begin(); // This initializes the NeoPixel library.
-  pixels.setBrightness(250); // LED 밝기 : 255가 최대 0이 최소 입니다.
-  pixels.show();
-
 }
 
-void loop() {
-  
+void loop() { 
   digitalWrite(a1,HIGH);
   data_save1();
   wavelet_transform1();
@@ -333,45 +283,11 @@ void loop() {
 //    Serial.print('\n');
 //  }
 
-//reconstructed result
+//serial plotting reconstructed result 
   for (i = 0; i< N; i++){
-    //Serial.print(x); Serial.print(',');
     Serial.print(buf1[i]-650); Serial.print(',');
     Serial.print(d4_re3_a1[i]); Serial.print(',');
     Serial.print(buf2[i]-650); Serial.print(',');
     Serial.print(d4_re3_a2[i]); Serial.print('\n');
-    
-    if(d4_re3_a1[i]>8 || d4_re3_a2[i]>8){
-      previousMillis = millis();
-      digitalWrite(RPin1, HIGH); 
-      digitalWrite(RPin2, HIGH); 
-      digitalWrite(RPin3, HIGH);
-      digitalWrite(RPin4, HIGH);
-      pixels.setPixelColor(0, pixels.Color(0,0,0,0)); // 0번 LED 빨간색 ON
-      pixels.setPixelColor(1, pixels.Color(0,0,0,0)); // 1번 LED 빨간색 ON
-      pixels.show(); 
-
-
-//      digitalWrite(GPin1, LOW); 
-//      digitalWrite(GPin2, LOW); 
-//      digitalWrite(GPin3, LOW);
-//      digitalWrite(GPin4, LOW);
-    }
-  }
-  
-  currentMillis = millis();
-  if(currentMillis - previousMillis > interval){
-  digitalWrite(RPin1,LOW);
-  digitalWrite(RPin2,LOW);
-  digitalWrite(RPin3,LOW);
-  digitalWrite(RPin4,LOW);
-
-  pixels.setPixelColor(0, pixels.Color(0,255,0,255)); // 0번 LED 빨간색 ON
-  pixels.setPixelColor(1, pixels.Color(0,0,0,255)); // 1번 LED 빨간색 ON
-  pixels.show(); 
-//  digitalWrite(GPin1,HIGH);
-//  digitalWrite(GPin2,HIGH);
-//  digitalWrite(GPin3,HIGH);
-//  digitalWrite(GPin4,HIGH);
   }
 }
